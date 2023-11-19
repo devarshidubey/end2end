@@ -1,46 +1,74 @@
+import os
 import socket
-from cryptography.hazmat.primitives import serialization
+import json
+import base64
 from cryptography.hazmat.primitives.asymmetric import x25519
-from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import serialization
 
-def receive_public_key():
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.bind(('127.0.0.1', 12345))
-    server_socket.listen(1)
+# Function to deserialize X25519 public key from Base64
+def deserialize_x25519_key(base64_key):
+    serialized_key = base64.b64decode(base64_key)
+    public_key = x25519.X25519PublicKey.from_public_bytes(serialized_key)
+    return public_key
 
-    print("Waiting for a connection...")
-    connection, address = server_socket.accept()
-    print(f"Connection from {address}")
-    
-    with connection:
-        data = connection.recv(4096)
-        #very very imp
-        public_key = serialization.load_pem_public_key(data, default_backend()) #very imp
-        public_key_bytes = public_key.public_bytes( 
-            encoding=serialization.Encoding.Raw,
-            format=serialization.PublicFormat.Raw
-        )
-        print(public_key_bytes.hex())
-        return public_key
+# Create a socket
+server_address = ('localhost', 12345)  # Change this to the address you want to bind
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
+    server_socket.bind(server_address)
+    server_socket.listen()
 
-def perform_dh_exchange(private_key, public_key):
-    shared_key = private_key.exchange(public_key)
-    return shared_key
+    print("Server listening on {}:{}".format(*server_address))
 
-if __name__ == "__main__":
-    # Load server private key from file
-    with open('server_private_key.pem', 'rb') as key_file:
-        private_key_data = key_file.read()
-        private_key = serialization.load_pem_private_key(
-            private_key_data,
-            password=None,
-            backend=default_backend()
-        )
+    # Accept connections
+    while True:
+        client_socket, client_address = server_socket.accept()
+        with client_socket:
+            print("Accepted connection from", client_address)
 
-    # Receive public key from the client
-    client_public_key = receive_public_key()
+            # Receive data from the client
+            data = client_socket.recv(1024).decode('utf-8')
 
-    # Perform X25519 DH exchange
-    shared_key = perform_dh_exchange(private_key, client_public_key)
+            # Parse JSON data
+            try:
+                data_structure = json.loads(data)
 
-    print(f"Shared Key: {shared_key.hex()}")
+                # Extract UUID from the data structure
+                uuid = data_structure.get("uuid")
+                if not uuid:
+                    print("Error: UUID not provided in JSON data.")
+                    continue
+
+                # Create a folder for the UUID if it doesn't exist
+                storage_folder = os.path.join(os.getcwd(), uuid)
+                os.makedirs(storage_folder, exist_ok=True)
+
+                # Extract keys from the data structure
+                keys = data_structure.get("keys", [])
+
+                # Deserialize and store the keys
+                for index, base64_key in enumerate(keys):
+                    public_key = deserialize_x25519_key(base64_key)
+
+                    # Save the key to a file within the UUID folder
+                    filename = os.path.join(storage_folder, f'key_{index + 1}.txt')
+                    with open(filename, 'wb') as key_file:
+                        key_file.write(public_key.public_bytes(
+                            encoding=serialization.Encoding.Raw,
+                            format=serialization.PublicFormat.Raw
+                        ))
+
+                # Print or process the stored keys
+                print(f"Stored Keys for UUID {uuid}:")
+                for key_file in os.listdir(storage_folder):
+                    with open(os.path.join(storage_folder, key_file), 'rb') as key_file:
+                        key_bytes = key_file.read()
+                        public_key = x25519.X25519PublicKey.from_public_bytes(key_bytes)
+                        print(public_key.public_bytes(
+                            encoding=serialization.Encoding.Raw,
+                            format=serialization.PublicFormat.Raw
+                        ).hex())
+
+            except json.JSONDecodeError as e:
+                print("Error decoding JSON:", e)
+
+            # You can add additional logic for sending responses to the client if needed
