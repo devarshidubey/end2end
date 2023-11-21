@@ -3,7 +3,7 @@ from cryptography.hazmat.primitives.asymmetric import x25519
 from cryptography.hazmat.primitives import serialization
 import base64
 import json, os
-# Function to generate X25519 public key
+
 def generate_x25519_key():
     private_key = x25519.X25519PrivateKey.generate()
     public_key = private_key.public_key()
@@ -21,34 +21,29 @@ def serialize_x25519_key(public_key):
     base64_key = base64.b64encode(serialized_key).decode('utf-8')
     return base64_key
 
+def deserialize_x25519_key(base64_key):
+    serialized_key = base64.b64decode(base64_key)
+    public_key = x25519.X25519PublicKey.from_public_bytes(serialized_key)
+    return public_key
+
 def publish_key_bundle(uuid, public_key1, public_key2, public_key3):
-    # Serialize X25519 public keys to Base64
     base64_key1 = serialize_x25519_key(public_key1)
     base64_key2 = serialize_x25519_key(public_key2)
     base64_key3 = serialize_x25519_key(public_key3)
 
-    # Define the data structure
     data_structure = {
+        "request_type":"upload_prekey_bundle",
         "keys": [base64_key1, base64_key2, base64_key3],
         "uuid": uuid
-        # You can include other information in the data structure as needed
     }
 
-    # Convert data structure to JSON
     json_data = json.dumps(data_structure)
-
-    # Connect to the server
-    server_address = ('localhost', 12345)  # Change this to your server's address
+    server_address = ('localhost', 12345) 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.connect(server_address)
-
-        # Send the JSON data
+        s.connect(server_address)    
         s.sendall(json_data.encode('utf-8'))
+        s.close()
 
-        # You can add additional logic for receiving responses from the server if needed
-
-    # Note: This is a basic example and does not include error handling or encryption.
-    # In a production scenario, you should consider using TLS/SSL for secure communication.
 def store_local_keys():
     storage_folder = os.path.join(os.getcwd(), "public_keys")
     storage_folder2 = os.path.join(os.getcwd(), "private_keys")
@@ -94,14 +89,51 @@ def install_app():
     if not os.path.isfile("installation"):
         store_local_keys()
         public_keys = read_local_keys()
-    # If the file doesn't exist, create it
         with open("installation", "w") as installation_file:
             installation_file.write("Installation file created.\n")
         publish_key_bundle("uuid25519", public_keys[0], public_keys[1], public_keys[2])
 
+def fetch_prebundle_keys(uuid):
+    data_structure = {
+        "request_type":"fetch_prebundle_keys",
+        "keys": [],
+        "uuid": uuid
+    }
+
+    json_data = json.dumps(data_structure)
+    server_address = ('localhost', 12345) 
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.connect(server_address) 
+        s.sendall(json_data.encode('utf-8'))
+
+        data = s.recv(1024).decode('utf-8')
+
+        try: 
+            if data:
+                data_structure = json.loads(data)
+                keys = data_structure.get("keys", [])
+                key_list = []
+                print("brpther ", data_structure.get("date"))
+                print("Received key bundles:")
+                for index, base64_key in enumerate(keys):
+                    public_key =  deserialize_x25519_key(base64_key)
+                    key_list.append(public_key)
+                    print(public_key.public_bytes(
+                        encoding=serialization.Encoding.Raw,
+                        format=serialization.PublicFormat.Raw
+                        ).hex()
+                    )
+        except:
+            print("failed to load json 2")
+        
+
 if __name__ == "__main__":
-    #when the app is FIRST installed, the below code will run
-    install_app()
+    server_address = ('localhost', 12345) 
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        # s.connect(server_address)    
+        install_app()
+        print("INSTALL APP FINISHED")
+        fetch_prebundle_keys("uuid25519")
 
 #NOTE TO SELF: 1. THE INSTALLATION FILE WILL CONTAIN DATE OF INSTALLATION, INFO ABOUT LAST TIME THE SIGNED PREKEY WAS UPDATED
 #2. BEFORE PUBLISHING THE KEYS DURING INSTALLATION, THE CLIENT MUST ASK THE SERVER TO RESERVE A UUID FOR ITSELF. THE SERVER WILL MAP THE UUID WITH THE IP ADDRESS(OR MAC ADDRESS) OF THE CLIENT, THE CLIENT WILL THEN STORE THAT UUID IN LOCAL MACHINE
