@@ -3,7 +3,7 @@ from cryptography.hazmat.primitives.asymmetric import x25519
 from cryptography.hazmat.primitives import serialization
 import base64
 import json, os
-# Function to generate X25519 public key
+
 def generate_x25519_key():
     private_key = x25519.X25519PrivateKey.generate()
     public_key = private_key.public_key()
@@ -22,33 +22,23 @@ def serialize_x25519_key(public_key):
     return base64_key
 
 def publish_key_bundle(uuid, public_key1, public_key2, public_key3):
-    # Serialize X25519 public keys to Base64
     base64_key1 = serialize_x25519_key(public_key1)
     base64_key2 = serialize_x25519_key(public_key2)
     base64_key3 = serialize_x25519_key(public_key3)
 
-    # Define the data structure
     data_structure = {
         "keys": [base64_key1, base64_key2, base64_key3],
         "uuid": uuid
-        # You can include other information in the data structure as needed
     }
 
-    # Convert data structure to JSON
     json_data = json.dumps(data_structure)
 
-    # Connect to the server
     server_address = ('localhost', 12345)  # Change this to your server's address
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.connect(server_address)
 
-        # Send the JSON data
         s.sendall(json_data.encode('utf-8'))
 
-        # You can add additional logic for receiving responses from the server if needed
-
-    # Note: This is a basic example and does not include error handling or encryption.
-    # In a production scenario, you should consider using TLS/SSL for secure communication.
 def store_local_keys():
     storage_folder = os.path.join(os.getcwd(), "public_keys")
     storage_folder2 = os.path.join(os.getcwd(), "private_keys")
@@ -94,13 +84,12 @@ def install_app():
     if not os.path.isfile("installation"):
         store_local_keys()
         public_keys = read_local_keys()
-    # If the file doesn't exist, create it
+
         with open("installation", "w") as installation_file:
             installation_file.write("Installation file created.\n")
         publish_key_bundle("uuid25519", public_keys[0], public_keys[1], public_keys[2])
 
 if __name__ == "__main__":
-    #when the app is FIRST installed, the below code will run
     install_app()
 
 #NOTE TO SELF: 1. THE INSTALLATION FILE WILL CONTAIN DATE OF INSTALLATION, INFO ABOUT LAST TIME THE SIGNED PREKEY WAS UPDATED
