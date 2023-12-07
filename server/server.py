@@ -4,7 +4,7 @@ import json
 import base64
 from cryptography.hazmat.primitives.asymmetric import x25519
 from cryptography.hazmat.primitives import serialization
-
+global data_structure1
 # Function to deserialize X25519 public key from Base64
 def deserialize_x25519_key(base64_key):
     serialized_key = base64.b64decode(base64_key)
@@ -26,7 +26,7 @@ def fetch_prebundle_keys(uuid,client_socket):
         if not os.path.exists(storage_folder):
             print(f"Error: Folder for UUID {uuid} does not exist.")
             return None  # Return None or appropriate value indicating failure
-
+        
         # Fetch and return the keys
         keys = []
         for key_file in os.listdir(storage_folder):
@@ -34,7 +34,7 @@ def fetch_prebundle_keys(uuid,client_socket):
                 key_bytes = key_file.read()
                 public_key = x25519.X25519PublicKey.from_public_bytes(key_bytes)
                 keys.append(serialize_x25519_key(public_key))
-
+        
         data_structure = {
             "keys":keys
         }  
@@ -82,6 +82,20 @@ def upload_prekey_bundle(uuid,data_structure):
             # except json.JSONDecodeError as e:
             #     print("Error decoding JSON:", e)
 
+def send_to_bob(client_socket):
+    try:
+        # Check if the folder for the UUID exists
+        data_structure = data_structure1
+        print("**Printing++") 
+
+        json_data = json.dumps(data_structure)
+
+        client_socket.sendall(json_data.encode('utf-8'))           
+
+    except Exception as e:
+        print(f"Error: Fetching prekey bundle for UUID {uuid} failed:", e)
+        return None  # Return None or appropriate value indicating failure
+
 # Create a socket
 server_address = ('localhost', 12345)  # Change this to the address you want to bind
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
@@ -115,7 +129,12 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
                 if data_structure["request_type"] == "upload_prekey_bundle":
                     upload_prekey_bundle(uuid,data_structure)
                 elif data_structure["request_type"] == 'fetch_prebundle_keys':
-                    fetch_prebundle_keys(data_structure["uuid"],client_socket)                    
+                    fetch_prebundle_keys(data_structure["uuid"],client_socket)   
+                elif data_structure["request_type"] == 'init_message':
+                    print(data_structure)
+                    data_structure1 = data_structure
+                elif data_structure["request_type"] == 'recv_init_message':  
+                    send_to_bob(client_socket)
                 # Create a folder for the UUID if it doesn't exist
             #     storage_folder = os.path.join(os.getcwd(), uuid)
             #     os.makedirs(storage_folder, exist_ok=True)
