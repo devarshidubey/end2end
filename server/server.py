@@ -2,9 +2,24 @@ import os
 import socket
 import json
 import base64
+from queue import Queue
+import threading
 from cryptography.hazmat.primitives.asymmetric import x25519
 from cryptography.hazmat.primitives import serialization
 global data_structure1
+
+global alice_queue
+global bob_queue
+
+exit_event = threading.Event()
+exit_event2 = threading.Event()
+
+alice_queue = Queue()
+bob_queue = Queue()
+
+# alice_queue.put("message1")
+# alice_queue.put("message2")
+
 # Function to deserialize X25519 public key from Base64
 def deserialize_x25519_key(base64_key):
     serialized_key = base64.b64decode(base64_key)
@@ -96,6 +111,132 @@ def send_to_bob(client_socket):
         print(f"Error: Fetching prekey bundle for UUID {uuid} failed:", e)
         return None  # Return None or appropriate value indicating failure
 
+def send_messages2(client_socket):
+    print("send message is ready")
+    while not exit_event2.is_set():
+        # print("send message is sending")
+        # Get message from Bob's queue and send it to him
+        if not bob_queue.empty():
+            message = bob_queue.get()
+            client_socket.sendall(message.encode('utf-8'))
+            print(f"Sent to Bob: {message}")
+
+def receive_messages2(client_socket):
+    try:
+        print("receive message is ready")
+        while not exit_event2.is_set():
+            print("receive message is receiving")      
+            data = client_socket.recv(1024)
+            if not data:
+                print("Connection closed by the client.")
+                break
+            received_message = data.decode('utf-8')
+            if(received_message == "close"):
+                exit_event2.set()
+                break
+            print(f"Received from Alice: {received_message}")
+
+            # Put the received message in Bob's queue
+            alice_queue.put(received_message)
+            elements = list(alice_queue.queue)
+            for element in elements:
+                print(element)
+    except ConnectionResetError:
+        print("ConnectionResetError: Connection closed by the client.")
+    finally:
+        print("Connection closed by the client.")
+        exit_event2.clear()
+        # Close the client socket in the 'finally' block
+        client_socket.close()
+
+
+def msg_functionality2(client_socket):
+    print("msg f2 working")
+    try:
+        # Create threads for sending and receiving messages
+        send_thread = threading.Thread(target=send_messages2, args=(client_socket,))
+        receive_thread = threading.Thread(target=receive_messages2, args=(client_socket,))
+        print("threads activated")
+        # Start the threads
+        send_thread.start()
+        receive_thread.start()
+        print("threads started")
+        send_thread.join()
+        receive_thread.join()
+        print("threads joined")
+    except Exception as e:
+        print(f"Message functionality failed: {e}")  
+        client_socket.close()
+
+    while not exit_event2.is_set():
+        exit_event2.clear()
+        return
+
+
+#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+def send_messages(client_socket):
+    # print("send message is ready")
+    while not exit_event.is_set():
+        # print("send message is sending")
+        # Get message from Alice's queue and send it to her
+        if not alice_queue.empty():
+            message = alice_queue.get()
+            client_socket.sendall(message.encode('utf-8'))
+            print(f"Sent to Alice: {message}")
+
+def receive_messages(client_socket):
+    try:
+        # print("receive message is ready")
+        while not exit_event.is_set():
+            # print("receive message is receiving")      
+            data = client_socket.recv(1024)
+            if not data:
+                print("Connection closed by the client.")
+                break
+            received_message = data.decode('utf-8')
+            if(received_message == "close"):
+                exit_event.set()
+                break
+            print(f"Received from Bob: {received_message}")
+
+            # Put the received message in Bob's queue
+            bob_queue.put(received_message)
+            elements = list(bob_queue.queue)
+            for element in elements:
+                print(element)
+    except ConnectionResetError:
+        print("ConnectionResetError: Connection closed by the client.")
+    finally:
+        print("Connection closed by the client.")
+        exit_event.clear()
+        # Close the client socket in the 'finally' block
+        client_socket.close()
+
+
+def msg_functionality(client_socket):
+
+    try:
+        # Create threads for sending and receiving messages
+        send_thread = threading.Thread(target=send_messages, args=(client_socket,))
+        receive_thread = threading.Thread(target=receive_messages, args=(client_socket,))
+        # print("threads activated")
+        # Start the threads
+        send_thread.start()
+        receive_thread.start()
+        # print("threads started")
+        send_thread.join()
+        receive_thread.join()
+        # print("threads joined")
+    except Exception as e:
+        print(f"Message functionality failed: {e}")  
+        client_socket.close()
+
+    while not exit_event.is_set():
+        exit_event.clear()
+        return    
+
+
 # Create a socket
 server_address = ('localhost', 12345)  # Change this to the address you want to bind
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
@@ -135,6 +276,10 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
                     data_structure1 = data_structure
                 elif data_structure["request_type"] == 'recv_init_message':  
                     send_to_bob(client_socket)
+                elif data_structure["request_type"] == 'msg-alice':  
+                    msg_functionality(client_socket)    
+                elif data_structure["request_type"] == 'msg-bob':  
+                    msg_functionality2(client_socket)                      
                 # Create a folder for the UUID if it doesn't exist
             #     storage_folder = os.path.join(os.getcwd(), uuid)
             #     os.makedirs(storage_folder, exist_ok=True)

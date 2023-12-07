@@ -1,9 +1,11 @@
 import socket
+import threading
 from cryptography.hazmat.primitives.asymmetric import x25519
 from cryptography.hazmat.primitives import serialization
 import base64
 import json, os
 import binascii
+exit_event = threading.Event()
 
 def generate_x25519_key():
     private_key = x25519.X25519PrivateKey.generate()
@@ -174,16 +176,71 @@ def create_shared_secret(alice_key_list):
     print("shared secret: ", hex_representation)
     return shared_secret 
 
+def send_messages(s):
+    while not exit_event.is_set():
+        try:
+            message = input("Enter message to send (or 'close' to quit): \n")
+            if message.lower() == 'close':
+                exit_event.set()
+
+            s.sendall(message.encode('utf-8'))
+            print(f"Sent: {message}")
+        except Exception as e:
+            # print(f"Error sending data: {e}")
+            print(f"Error sending data")
+            break
+
+def receive_messages(s):
+    while not exit_event.is_set():
+        try:
+            data = s.recv(1024)
+            if not data:
+                break
+            received_message = data.decode('utf-8')
+            print(f"Received: {received_message}\n")
+        except socket.error as e:
+            # Handle the exception (e.g., print an error message)
+            print(f"Error receiving data: {e}")
+            break
+
+def msg_functionality(s):
+    try:
+        data_structure = {
+        "request_type":"msg-bob",
+        "uuid": "bob",
+         }
+        json_data = json.dumps(data_structure)
+        s.sendall(json_data.encode('utf-8'))
+
+        # Create threads for sending and receiving messages
+        send_thread = threading.Thread(target=send_messages, args=(s,))
+        receive_thread = threading.Thread(target=receive_messages, args=(s,))
+
+        # Start the threads
+        send_thread.start()
+        receive_thread.start()
+
+        send_thread.join()
+        receive_thread.join()
+
+    except Exception as e:
+        print(f"Message functionality failed: {e}")   
+
+    while not exit_event.is_set():
+        return
+
+
 if __name__ == "__main__":
     server_address = ('localhost', 12345) 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        # s.connect(server_address)    
-        install_app()
-        print("INSTALL APP FINISHED")
-        # fetch_prebundle_keys("alice")
+        s.connect(server_address)    
+        # install_app()
+        # print("INSTALL APP FINISHED")
+        # # fetch_prebundle_keys("alice")
 
-        alice_keys = recieve_init_message()
-        create_shared_secret(alice_keys)
+        # alice_keys = recieve_init_message()
+        # create_shared_secret(alice_keys)
+        msg_functionality(s)
 #NOTE TO SELF: 1. THE INSTALLATION FILE WILL CONTAIN DATE OF INSTALLATION, INFO ABOUT LAST TIME THE SIGNED PREKEY WAS UPDATED
 #2. BEFORE PUBLISHING THE KEYS DURING INSTALLATION, THE CLIENT MUST ASK THE SERVER TO RESERVE A UUID FOR ITSELF. THE SERVER WILL MAP THE UUID WITH THE IP ADDRESS(OR MAC ADDRESS) OF THE CLIENT, THE CLIENT WILL THEN STORE THAT UUID IN LOCAL MACHINE
 #3 UPLOAD THE SIGNATURE OF THE SIGNED PREKEY, SIGNED WITH IDENTITY KEY
