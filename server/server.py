@@ -6,6 +6,7 @@ from queue import Queue
 import threading
 from cryptography.hazmat.primitives.asymmetric import x25519
 from cryptography.hazmat.primitives import serialization
+import binascii
 global data_structure1
 
 global alice_queue
@@ -99,16 +100,13 @@ def upload_prekey_bundle(uuid,data_structure):
 
 def send_to_bob(client_socket):
     try:
-        # Check if the folder for the UUID exists
         data_structure = data_structure1
-        print("**Printing++") 
-
         json_data = json.dumps(data_structure)
 
         client_socket.sendall(json_data.encode('utf-8'))           
 
     except Exception as e:
-        print(f"Error: Fetching prekey bundle for UUID {uuid} failed:", e)
+        print(f"Error: sending the ephemeral key and identity key to Bob:", e)
         return None  # Return None or appropriate value indicating failure
 
 def send_messages2(client_socket):
@@ -118,7 +116,7 @@ def send_messages2(client_socket):
         # Get message from Bob's queue and send it to him
         if not bob_queue.empty():
             message = bob_queue.get()
-            client_socket.sendall(message.encode('utf-8'))
+            client_socket.sendall(message)
             print(f"Sent to Bob: {message}")
 
 def receive_messages2(client_socket):
@@ -130,17 +128,18 @@ def receive_messages2(client_socket):
             if not data:
                 print("Connection closed by the client.")
                 break
-            received_message = data.decode('utf-8')
-            if(received_message == "close"):
-                exit_event2.set()
-                break
-            print(f"Received from Alice: {received_message}")
-
+            try:
+                received_message = data.decode('utf-8')
+                if(received_message == "close"):
+                    exit_event.set()
+                    break
+            except:
+                received_message = data
+            print(f"Received from Bob: {binascii.hexlify(received_message).decode('utf-8')}")
+            
             # Put the received message in Bob's queue
             alice_queue.put(received_message)
-            elements = list(alice_queue.queue)
-            for element in elements:
-                print(element)
+
     except ConnectionResetError:
         print("ConnectionResetError: Connection closed by the client.")
     finally:
@@ -182,7 +181,7 @@ def send_messages(client_socket):
         # Get message from Alice's queue and send it to her
         if not alice_queue.empty():
             message = alice_queue.get()
-            client_socket.sendall(message.encode('utf-8'))
+            client_socket.sendall(message)
             print(f"Sent to Alice: {message}")
 
 def receive_messages(client_socket):
@@ -194,17 +193,18 @@ def receive_messages(client_socket):
             if not data:
                 print("Connection closed by the client.")
                 break
-            received_message = data.decode('utf-8')
-            if(received_message == "close"):
-                exit_event.set()
-                break
-            print(f"Received from Bob: {received_message}")
+            try:
+                received_message = data.decode('utf-8')
+                if(received_message == "close"):
+                    exit_event.set()
+                    break
+            except:
+                received_message = data
+            print(f"Received from Alice: {binascii.hexlify(received_message).decode('utf-8')}")
 
             # Put the received message in Bob's queue
             bob_queue.put(received_message)
-            elements = list(bob_queue.queue)
-            for element in elements:
-                print(element)
+            
     except ConnectionResetError:
         print("ConnectionResetError: Connection closed by the client.")
     finally:
@@ -272,7 +272,6 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
                 elif data_structure["request_type"] == 'fetch_prebundle_keys':
                     fetch_prebundle_keys(data_structure["uuid"],client_socket)   
                 elif data_structure["request_type"] == 'init_message':
-                    print(data_structure)
                     data_structure1 = data_structure
                 elif data_structure["request_type"] == 'recv_init_message':  
                     send_to_bob(client_socket)

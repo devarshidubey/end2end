@@ -2,10 +2,58 @@ import socket
 import threading
 from cryptography.hazmat.primitives.asymmetric import x25519
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
 import base64
 import json, os
 import binascii
 exit_event = threading.Event()
+
+def derive_aes_key(shared_secret):
+    # Using HKDF with SHA-256 as the hash function
+    hkdf = HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,  # 32 bytes = 256 bits
+        salt=None,  # No salt for simplicity, adjust as needed
+        info=b'AES Key Derivation',  # Additional context information
+        backend=default_backend()
+    )
+
+    # Derive the key
+    aes_key = hkdf.derive(shared_secret)
+
+    return aes_key
+
+def encrypt(message, key):
+    # Create an AES-ECB cipher with the provided key
+    plaintext = message.encode('utf-8')
+    cipher = Cipher(algorithms.AES(key), modes.ECB(), backend=default_backend())
+    encryptor = cipher.encryptor()
+
+    # Pad the plaintext to be a multiple of the block size
+    block_size = algorithms.AES.block_size // 8
+    plaintext_padded = plaintext + b'\x00' * (block_size - len(plaintext) % block_size)
+
+    # Encrypt the padded plaintext
+    ciphertext = encryptor.update(plaintext_padded) + encryptor.finalize()
+
+    return ciphertext
+
+def decrypt(ciphertext, key):
+    # Create an AES-ECB cipher with the provided key
+    cipher = Cipher(algorithms.AES(key), modes.ECB(), backend=default_backend())
+    decryptor = cipher.decryptor()
+
+    # Decrypt the ciphertext
+    plaintext_padded = decryptor.update(ciphertext) + decryptor.finalize()
+
+    # Remove padding from the decrypted plaintext
+    plaintext = plaintext_padded.rstrip(b'\x00')
+
+    return plaintext
 
 def generate_x25519_key():
     private_key = x25519.X25519PrivateKey.generate()
@@ -173,7 +221,7 @@ def create_shared_secret(alice_key_list):
     shared_secret = dh1+dh2+dh3+dh4
     hex_representation = binascii.hexlify(shared_secret).decode('utf-8')
     
-    print("shared secret: ", hex_representation)
+    # print("shared secret: ", hex_representation)
     return shared_secret 
 
 def send_messages(s):
@@ -182,12 +230,17 @@ def send_messages(s):
             message = input("Enter message to send (or 'close' to quit): \n")
             if message.lower() == 'close':
                 exit_event.set()
-
-            s.sendall(message.encode('utf-8'))
+                s.sendall(message.encode('utf-8'))
+                continue
+            key = read_byte_object_from_file('aes_key')
+            
+            ciphertext = encrypt(message, key)
+            print(ciphertext)
+            s.sendall(ciphertext)
             print(f"Sent: {message}")
         except Exception as e:
             # print(f"Error sending data: {e}")
-            print(f"Error sending data")
+            print(f"Error sending data",e)
             break
 
 def receive_messages(s):
@@ -196,8 +249,10 @@ def receive_messages(s):
             data = s.recv(1024)
             if not data:
                 break
-            received_message = data.decode('utf-8')
-            print(f"Received: {received_message}\n")
+            received_message = data
+            key = read_byte_object_from_file('aes_key')
+            decrypted_text = decrypt(received_message, key).decode('utf-8')
+            print(f"Received: {decrypted_text}\n")
         except socket.error as e:
             # Handle the exception (e.g., print an error message)
             print(f"Error receiving data: {e}")
@@ -228,7 +283,17 @@ def msg_functionality(s):
 
     while not exit_event.is_set():
         return
+    
+def save_byte_object_to_file(byte_object, file_name):
+    file_path = os.path.join(os.path.dirname(__file__), file_name)
+    with open(file_path, 'wb') as file:
+        file.write(byte_object)
 
+def read_byte_object_from_file(file_name):
+    file_path = os.path.join(os.path.dirname(__file__), file_name)
+    with open(file_path, 'rb') as file:
+        byte_object = file.read()
+    return byte_object
 
 if __name__ == "__main__":
     server_address = ('localhost', 12345) 
@@ -237,6 +302,12 @@ if __name__ == "__main__":
         # install_app()
         # print("INSTALL APP FINISHED")
         # # fetch_prebundle_keys("alice")
+
+        # alice_keys = recieve_init_message()
+        # shared_secret = create_shared_secret(alice_keys)
+        # aes_key = derive_aes_key(shared_secret)
+        # save_byte_object_to_file(aes_key, 'aes_key')
+        # print("aes key:",binascii.hexlify(aes_key).decode('utf-8'))
 
         # alice_keys = recieve_init_message()
         # create_shared_secret(alice_keys)
